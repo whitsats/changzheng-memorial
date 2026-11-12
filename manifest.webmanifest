@@ -1,0 +1,17 @@
+{
+  "name": "长征纪念 · 1921—1949 大事件时间轴",
+  "short_name": "长征纪念",
+  "description": "1921—1949 中国共产党大事件交互地图时间轴：中共一大、红军长征路线、遵义会议、抗日战争与开国大典。",
+  "lang": "zh-CN",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f3eee4",
+  "theme_color": "#f3eee4",
+  "icons": [
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

@@ -1,0 +1,17 @@
+.git
+.github
+docs
+scripts
+skills
+workers
+data
+geojson/demo.html
+assets/hero_demo_*.webp
+assets/preview_*.webp
+*.md
+.gitignore
+.gitattributes
+Dockerfile
+docker-compose.yml
+.dockerignore
+.DS_Store
