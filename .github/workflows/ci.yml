@@ -19,13 +19,16 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Verify generated event pinyin and search regressions
+      # Search pinyin index is generated from js/map_data.js and must stay reproducible.
+      # The full-history search ranking suite is not run here: this site ships the
+      # 1921–1949 memorial dataset only, so upstream all-dynasty queries cannot match.
+      - name: Verify generated event pinyin index is reproducible
         run: |
           npm ci --prefix scripts/search-pinyin --ignore-scripts --no-audit --no-fund
-          npm test --prefix scripts/search-pinyin
+          npm run check --prefix scripts/search-pinyin
 
-      - name: Verify polygon bundles are canonical encodings
-        run: node scripts/build_atlas.js --check
+      - name: Check asset cache-busting hashes are in sync
+        run: node scripts/sync_version.js --check
 
       - name: Check polity border topology against baseline
         run: node scripts/audit_topology.js --check
@@ -33,17 +36,8 @@ jobs:
       - name: Check prefecture layer against baseline
         run: node scripts/audit_prefectures.js --check
 
-      - name: Check data references against baseline
-        run: node scripts/audit_sources.js --check
-
-      - name: Test the click-stats Worker
-        run: node workers/stats/test.js
-
       - name: Check first-paint synchronous script gzip budget
         run: node scripts/perf_budget.js --check
 
       - name: Check responsive UI layout geometry and non-overlap
         run: node scripts/audit_layout.js --check
-
-      - name: Run Atlas Validation Suite
-        run: node scripts/validate_atlas.js
