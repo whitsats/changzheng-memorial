@@ -27,6 +27,9 @@ jobs:
           npm ci --prefix scripts/search-pinyin --ignore-scripts --no-audit --no-fund
           npm run check --prefix scripts/search-pinyin
 
+      - name: Run pinyin quick-search regressions over the shipped 1917–1949 events
+        run: npm run test:memorial --prefix scripts/search-pinyin
+
       - name: Check asset cache-busting hashes are in sync
         run: node scripts/sync_version.js --check
 

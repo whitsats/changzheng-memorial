@@ -4,7 +4,8 @@
   "scripts": {
     "build": "node build.cjs",
     "check": "node build.cjs --check",
-    "test": "node --test search.test.cjs"
+    "test": "node --test search.test.cjs",
+    "test:memorial": "node --test search.memorial.test.cjs"
   },
   "devDependencies": {
     "pinyin-pro": "3.29.5"

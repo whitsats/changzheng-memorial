@@ -28,6 +28,22 @@ npx serve memorial          # 或 python -m http.server
   `node tools/build_world_outline.mjs` 从 **Natural Earth 1:110m（公有领域）** 抽稀生成
   `js/world_outline.js`（无网络请求，静态可用）。
 
+## 校验与 CI
+
+`.github/workflows/ci.yml` 对数据与前端资产做回归，改动数据或 JS 后请在本地先跑一遍：
+
+| 检查 | 命令 | 覆盖内容 |
+| --- | --- | --- |
+| 拼音索引可复现 | `npm ci --prefix scripts/search-pinyin` 后 `npm run check --prefix scripts/search-pinyin` | `js/event_pinyin.js` 与 `js/map_data.js` 同步；每条事件都有纯拼音键 |
+| 拼音搜索回归（本站事件） | `npm run test:memorial --prefix scripts/search-pinyin` | 172 条 1917—1949 事件：紧凑 / 空格 / 大写 / 带调拼音、地名拼音、结果携带坐标与年份、选中后跳年开卡并平移、中文标题优先于拼音别名、短串不产生拼音噪声 |
+| 资源版本哈希 | `node scripts/sync_version.js --check` | `index.html` 中 18 个 bundle 的 `?v=` 与 `data-v-*` 与文件内容一致（哈希按 LF 归一化，跨平台结果相同） |
+| 疆域拓扑 baseline | `node scripts/audit_topology.js --check` | 与 `data/atlas/topology_baseline.json` 对齐 |
+| 府州图层 baseline | `node scripts/audit_prefectures.js --check` | 与 `data/atlas/prefecture_baseline.json` 对齐 |
+| 首屏脚本预算 | `node scripts/perf_budget.js --check` | 同步脚本 gzip 总量（上限写在 `data/atlas/perf_baseline.json`）、是否新增未登记的同步脚本 |
+| 响应式布局 | `node scripts/audit_layout.js --check` | 1280×800 / 768×1024 / 375×812 三档 HUD 不溢出、不重叠（本机需能启动 Chrome，可用 `CHROME_BIN` 指定） |
+
+上述检查只针对本站实际发布的 1917—1949 数据集。上游全史副本的校验（`build_atlas.js --check`、`audit_sources.js --check`、`validate_atlas.js`、`workers/stats/test.js`，以及 `scripts/search-pinyin/search.test.cjs` 里依赖 18 个朝代 526 条史事的断言）需要完整全史数据，CI 中不运行。
+
 ## 许可与署名
 
 - 本站代码遵循 **GPL-3.0**（见 `LICENSE`）；公开分发须保留本文件署名与原项目出处。
