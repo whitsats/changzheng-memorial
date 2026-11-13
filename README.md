@@ -23,7 +23,7 @@ npx serve memorial          # 或 python -m http.server
   **[江山时序（jiangshan-map）](https://github.com/DeanChensj/jiangshan-map)（作者 DeanChensj，GPL-3.0）** 改造。
 - 改造仅发生在 `js/map_data.js`（里程碑、时段、长征走廊）与可读的 HTML/CSS/JS 品牌文案；
   几何压缩文件未动。原仓库完整副本保留在项目根目录 `vendor/jiangshan-map/`。
-- 重新注入事件数据：`node tools/build_memorial.mjs`（仓库根目录）。
+- 重新注入事件数据：工作区根的 `tools/build_memorial.mjs`（数据源 `src/data/*.ts`）；本仓库只含生成后的 `js/map_data.js`。事件按覆盖其年份的时段分派：1921—1948 归 `roc` 段，1949 年 8 条归时间轴末段 `prc`，避免 `_clampYearToDynasty` 把 1949 年事件夹到 1948。
 - 域外小地图为独立 mixin（`js/atlas_world.js`），不改动 `app.js` 主体；世界轮廓由
   `node tools/build_world_outline.mjs` 从 **Natural Earth 1:110m（公有领域）** 抽稀生成
   `js/world_outline.js`（无网络请求，静态可用）。
@@ -35,7 +35,7 @@ npx serve memorial          # 或 python -m http.server
 | 检查 | 命令 | 覆盖内容 |
 | --- | --- | --- |
 | 拼音索引可复现 | `npm ci --prefix scripts/search-pinyin` 后 `npm run check --prefix scripts/search-pinyin` | `js/event_pinyin.js` 与 `js/map_data.js` 同步；每条事件都有纯拼音键 |
-| 拼音搜索回归（本站事件） | `npm run test:memorial --prefix scripts/search-pinyin` | 172 条 1917—1949 事件：紧凑 / 空格 / 大写 / 带调拼音、地名拼音、结果携带坐标与年份、选中后跳年开卡并平移、中文标题优先于拼音别名、短串不产生拼音噪声 |
+| 拼音搜索回归（本站事件） | `npm run test:memorial --prefix scripts/search-pinyin` | 171 条 1917—1949 事件：紧凑 / 空格 / 大写 / 带调拼音、地名拼音、结果携带坐标与年份、选中后跳年开卡并平移、1949 年事件不得被进度夹到 1948、中文标题优先于拼音别名、短串不产生拼音噪声 |
 | 资源版本哈希 | `node scripts/sync_version.js --check` | `index.html` 中 18 个 bundle 的 `?v=` 与 `data-v-*` 与文件内容一致（哈希按 LF 归一化，跨平台结果相同） |
 | 疆域拓扑 baseline | `node scripts/audit_topology.js --check` | 与 `data/atlas/topology_baseline.json` 对齐 |
 | 府州图层 baseline | `node scripts/audit_prefectures.js --check` | 与 `data/atlas/prefecture_baseline.json` 对齐 |

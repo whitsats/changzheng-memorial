@@ -58,7 +58,7 @@ test('the checked-in index is reproducible and covers every shipped event and la
 test('shipped milestones are all reachable by their own pinyin title', () => {
   const ctrl = controller();
   const rows = milestones();
-  assert.equal(rows.length, 172, 'shipped milestone count changed; update the dataset expectations');
+  assert.equal(rows.length, 171, 'shipped milestone count changed; update the dataset expectations');
   for (const event of rows) {
     const year = Number(event.year);
     assert(Number.isFinite(year), event.headline);
@@ -146,9 +146,24 @@ test('selecting a pinyin result jumps to its year, opens the event and pans to i
   const hit = eventHit(ctrl, 'kaiguodadian', 1949, '开国大典');
   assert(hit);
   assert.equal(hit.rawYear, 1949);
+  // Regression: 1949 events used to be clamped to 1948 by the neighbouring 1949 band.
+  assert.equal(hit.year, 1949);
   ctrl._selectSearchResult(hit);
-  // The jump target is the dynasty-clamped display year, which is what the balloon needs.
-  assert.deepEqual(calls, [['year', hit.year], ['card', hit.titleZh], ['pan', 116.397, 39.909]]);
+  assert.deepEqual(calls, [['year', 1949], ['card', hit.titleZh], ['pan', 116.397, 39.909]]);
+});
+
+test('1949 events keep their own year instead of clamping to 1948', () => {
+  const ctrl = controller();
+  const events = milestones().filter(event => Number(event.year) === 1949);
+  assert.equal(events.length, 8, 'expected eight 1949 events in the shipped dataset');
+  for (const event of events) {
+    const hit = ctrl._queryQuickSearch(event.headline.replace(/（.*?）/, '')).find(result =>
+      result.kind === 'event' && result.rawYear === 1949 && result.titleZh === event.headline);
+    assert(hit, event.headline);
+    assert.equal(hit.year, 1949, `${event.headline} must resolve to 1949`);
+    // The band that owns 1949 must be the one holding the event, so the map renders it there.
+    assert.equal(ctrl._findDynastyIndex(1949), ctrl.dynasties.indexOf(hit.dynasty));
+  }
 });
 
 test('Chinese titles still outrank their pinyin keys', () => {

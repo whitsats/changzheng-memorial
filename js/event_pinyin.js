@@ -165,7 +165,9 @@ window.ATLAS_EVENT_PINYIN = {
       ["liaoshenzhanyi","yue","jinzhou","shenyang"],
       ["jinanzhanyi","yue","jinan"],
       ["huaihaizhanyi","yue","xuzhouweizhongxin"],
-      ["pingjinzhanyi","yue","beiping","tianjin","zhangjiakou"],
+      ["pingjinzhanyi","yue","beiping","tianjin","zhangjiakou"]
+    ],
+    "prc": [
       ["beipinghepingjiefang","yue","beijing"],
       ["zhonggongqijieerzhongquanhui","yue","pingshan","xibaipo"],
       ["dujiangzhanyi","yue","xiqihukou","dongzhijiangyin"],
@@ -174,9 +176,6 @@ window.ATLAS_EVENT_PINYIN = {
       ["shanghaijiefang","yue","shanghai"],
       ["zhongguorenminzhengzhixieshanghuiyidiyijiequantihuiyi","yue","beiping"],
       ["kaiguodadian","yue","beijingtiananmen"]
-    ],
-    "prc": [
-      ["maozedongyutiananmenxuangaozhonghuarenmingongheguochengli","beijing"]
     ]
   },
   landmarks: [

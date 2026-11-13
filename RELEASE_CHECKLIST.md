@@ -54,4 +54,4 @@
 - 影响链数据（`src/data/influences.ts`，21 条、27 条国内对应）经 `tools/build_memorial.mjs` 挂为里程碑 `inf`；浏览器已验证：一览分组/未来置灰、点 chip 跳国内浮签且 viewBox 不变、莫斯科城卡展开苏联影响块、1942 华盛顿城卡+浮签联动。
 - 时间轴「现代」段为原站保留样式，当前 toYear=1949，视觉上仍横跨到「今」。
 - `index.html` 的 `?v=` / `data-v-*` 由 `node scripts/sync_version.js` 统一重算并提交；CI 用 `--check` 守着，改 JS/CSS 后记得重跑。
-- 1949 年事件（开国大典等）的搜索结果显示年份为 1948：`_clampYearToDynasty` 受紧邻的 1949 年分段（`fromYear=1949`）上界限制，属数据分段问题，未在本轮改动。
+- 1949 年事件曾被夹到 1948（`_clampYearToDynasty` 受紧邻的 1949 年分段上界限制）。已在生成器 `tools/build_memorial.mjs` 按年份归属拆分修正：`roc` 只留 ≤1948 的 163 条，1949 年 8 条进 `prc` 段（`_findDynastyIndex(1949)` 本来就返回 `prc`），上游重复的「天安门宣告」里程碑由本项目「开国大典」取代并继承其 `persons`。已验证：搜索、跳转、浮签、`?year=1949` 均为 1949，1948 年不再出现 1949 年浮签。
