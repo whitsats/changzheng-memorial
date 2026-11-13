@@ -57,8 +57,11 @@ const LAZY_ATTR_ASSETS = [
 ];
 
 function shortSha256(filePath) {
-  const buf = fs.readFileSync(filePath);
-  return crypto.createHash('sha256').update(buf).digest('hex').slice(0, 8);
+  // Normalize CRLF to LF before hashing: a Windows checkout and a Linux CI runner
+  // hold the same committed file with different line endings, and the cache-busting
+  // hash must not depend on the platform that computed it.
+  const content = fs.readFileSync(filePath, 'utf8').replace(/\r\n/g, '\n');
+  return crypto.createHash('sha256').update(content, 'utf8').digest('hex').slice(0, 8);
 }
 
 function computeAssetHashes(rootDir = ROOT) {
