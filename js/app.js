@@ -3248,6 +3248,9 @@
     // snapshot. Build the current era's and adjacent eras' boundaries during idle
     // time so era crossings don't hitch.
     _scheduleRegionBoundaryPrewarm() {
+      // Inside the Capacitor app (WebView on mobile), spare the cold start the ~2 s of
+      // background builds; the next-frame fallback covers first era crossings there.
+      if (typeof window !== 'undefined' && window.Capacitor && window.Capacitor.isNative) return;
       if (!this.snapshots || !this.dynasties || !this.dynasties.length) return;
       const span = 90;
       const from = Math.max(this.minYear, this.year - span);
