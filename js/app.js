@@ -3094,7 +3094,20 @@
         if (this._prefClipActive) shapesGroup.setAttribute('clip-path', 'url(#prefecture-clip)');
         else if (typeof shapesGroup.removeAttribute === 'function') shapesGroup.removeAttribute('clip-path');
       }
-      const regBoundaryPath = this._buildRegionBoundaryPath(snap);
+      // Cold snapshots pay the region-boundary build here (~270 ms: ~12k region
+      // vertices point-tested against polity rings; cached after). The idle prewarm
+      // normally built it already; if not, build it next frame and paint the strokes
+      // into the live overlay instead of blocking this render (cached thereafter).
+      if (
+        snap._cachedRegionBoundaryPath === undefined &&
+        Array.isArray(snap.regions) &&
+        snap.regions.length &&
+        !snap._skipRegionBoundaryStroke
+      ) {
+        this._deferRegionBoundaryBuild(snap);
+      }
+      const regBoundaryPath =
+        snap._cachedRegionBoundaryPath !== undefined ? snap._cachedRegionBoundaryPath : '';
       if (regBoundaryPath) {
         this._svgNode(
           'path',
@@ -3227,6 +3240,86 @@
       this._renderLegendBox(snap);
       if (!prefHidden) this._syncTracedPrefecture();
       this._rescaleSvgTypography();
+      this._scheduleRegionBoundaryPrewarm();
+    }
+
+    // The region boundary for the first render of an era snapshot costs ~270 ms
+    // (region vertices point-tested against polity rings), then is cached on the
+    // snapshot. Build the current era's and adjacent eras' boundaries during idle
+    // time so era crossings don't hitch.
+    _scheduleRegionBoundaryPrewarm() {
+      if (!this.snapshots || !this.dynasties || !this.dynasties.length) return;
+      const span = 90;
+      const from = Math.max(this.minYear, this.year - span);
+      const to = Math.min(this.maxYear, this.year + span);
+      const seen = new Set();
+      const queue = [];
+      for (let y = from; y <= to; y++) {
+        const dyn = this.dynasties[this._findDynastyIndex(y)];
+        if (!dyn) continue;
+        const k = this._resolveSnapKey(dyn, y);
+        if (seen.has(k)) continue;
+        seen.add(k);
+        const snap = this.snapshots[k];
+        if (
+          snap &&
+          snap.regions &&
+          snap.regions.length &&
+          !snap._skipRegionBoundaryStroke &&
+          snap._cachedRegionBoundaryPath === undefined
+        ) {
+          queue.push({ k, dist: Math.abs(y - this.year) });
+        }
+      }
+      queue.sort((a, b) => a.dist - b.dist);
+      if (!queue.length) return;
+      // A newer render supersedes this queue; the newest year band wins.
+      const session = (this._prewarmSession = (this._prewarmSession || 0) + 1);
+      const step = () => {
+        if (session !== this._prewarmSession) return;
+        while (queue.length) {
+          const entry = queue.shift();
+          const snap = this.snapshots[entry.k];
+          if (snap && snap._cachedRegionBoundaryPath === undefined) {
+            this._buildRegionBoundaryPath(snap);
+          }
+          break; // one build per idle slice; each is ~270 ms, stay responsive between
+        }
+        if (queue.length) {
+          if (typeof requestIdleCallback === 'function') requestIdleCallback(step, { timeout: 1500 });
+          else setTimeout(step, 0);
+        }
+      };
+      if (typeof requestIdleCallback === 'function') requestIdleCallback(step, { timeout: 500 });
+      else setTimeout(step, 0);
+    }
+
+    // If the era snapshot about to render has no region boundary built yet, build
+    // it next frame and paint the strokes then, so this render isn't blocked.
+    // The build result is cached on the snapshot, and the region strokes are
+    // appearance-neutral once painted (region boundary casing + shape).
+    _deferRegionBoundaryBuild(snap) {
+      if (typeof requestAnimationFrame !== 'function') {
+        this._buildRegionBoundaryPath(snap);
+        return;
+      }
+      // Latest snapshot wins; rapid era steps collapse into one build+paint.
+      this._regionBoundaryRafSnap = snap;
+      if (this._regionBoundaryRafPending) return;
+      this._regionBoundaryRafPending = true;
+      requestAnimationFrame(() => {
+        this._regionBoundaryRafPending = null;
+        const s = this._regionBoundaryRafSnap;
+        const g = this._regOverlayGroup;
+        if (!s || !g || g.parentNode !== this.grpPrefectures) return;
+        if (s !== this.lastRenderedSnap) return; // era moved on; newer render handles it
+        if (g.querySelector('.region-shape, .region-shape-casing')) return;
+        const d = this._buildRegionBoundaryPath(s);
+        if (!d) return;
+        const clipAttr = this._prefClipActive ? { 'clip-path': 'url(#prefecture-clip)' } : {};
+        this._svgNode('path', { d, class: 'region-shape-casing', ...clipAttr }, g);
+        this._svgNode('path', { d, class: 'region-shape', ...clipAttr }, g);
+      });
     }
 
     _buildRegionBoundaryPath(snap) {
