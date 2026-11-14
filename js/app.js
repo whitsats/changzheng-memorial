@@ -476,15 +476,19 @@
         this._buildTerrainRivers();
         this._buildModernProvinces();
         this._buildNeighborCountries();
-        this._buildScrubberBands();
+        this._deferScrubberBands();
         this._attachListeners();
-        this.applyLocale();
+        // Locale strings are already in the markup for the default Chinese build; the
+        // full pass rewrites hundreds of nodes (and forces layout) and is not needed to
+        // paint the map, so run it once the first frame is up.
+        this._deferLocalePass();
 
         this.jumpToYear(this.dynasties[0].focusYear);
         this._bootDone = true;
         this._restoreFromQuery();
         if (this.embed) this._initEmbedChrome();
       });
+      this._scheduleBootSplashDismiss();
       if (!this.embed) this._maybeShowStartGuide();
 
       if (typeof window !== 'undefined' && !this._fullSnapshotsLoaded) {
@@ -6582,6 +6586,37 @@
       }
     }
 
+    // The timeline's hundreds of tick/band nodes are not needed for the map's first
+    // frame; on slow devices building them up-front delays the first paint by seconds.
+    // Build them once the map has painted, then sync the scrubber state.
+    _deferScrubberBands() {
+      const build = () => {
+        if (this._scrubberBandsBuilt) return;
+        this._scrubberBandsBuilt = true;
+        this._buildScrubberBands();
+        this._syncScrubberUi();
+      };
+      this._runAfterFirstFrame(build);
+    }
+
+    // Locale application touches hundreds of nodes; on a slow WebView it costs seconds
+    // of layout before the map can paint. Do it after the first frame instead.
+    _deferLocalePass() {
+      const run = () => {
+        if (this._localeApplied) return;
+        this._localeApplied = true;
+        this.applyLocale();
+      };
+      this._runAfterFirstFrame(run);
+    }
+
+    // Chrome that has to measure the live layout (scale ruler) also waits for the first frame.
+    _runDeferredChromePass() {
+      if (this._chromePassDone) return;
+      this._chromePassDone = true;
+      this._updateScaleBar();
+    }
+
     _buildScrubberBands() {
       const bands = this._id('dynasty-bands');
       const ticks = this._id('scrubber-ticks');
@@ -7350,6 +7385,43 @@
       this._typoDirty = true;
     }
 
+    // Run work right after the first painted frame, with a timer fallback: a hidden or
+    // throttled WebView may never deliver the animation frame, and these tasks must not
+    // be lost forever.
+    _runAfterFirstFrame(fn) {
+      let done = false;
+      const once = () => {
+        if (done) return;
+        done = true;
+        fn();
+      };
+      if (typeof requestAnimationFrame === 'function') {
+        // Two frames: the first commits the map layers, the second confirms they composited.
+        requestAnimationFrame(() => requestAnimationFrame(once));
+      }
+      setTimeout(once, 4000);
+    }
+
+    // Drop the inline boot splash only once the map has actually painted a frame,
+    // so slow devices show the branded screen instead of a white page.
+    _scheduleBootSplashDismiss() {
+      if (typeof document === 'undefined') return;
+      const el = document.getElementById('boot-splash');
+      if (!el || el.dataset.dismissed) return;
+      const dismiss = () => {
+        if (el.dataset.dismissed) return;
+        el.dataset.dismissed = '1';
+        el.classList.add('is-done');
+        setTimeout(() => {
+          if (el.parentNode) el.parentNode.removeChild(el);
+        }, 460);
+      };
+      this._runAfterFirstFrame(() => {
+        dismiss();
+        this._runDeferredChromePass();
+      });
+    }
+
     _runWithDeferredTypography(fn) {
       this._deferTypographyDepth = (this._deferTypographyDepth || 0) + 1;
       try {
@@ -7735,6 +7807,10 @@
     }
 
     _updateScaleBar(viewportRect = null) {
+      // Before the first frame the map hasn't been sized yet; measuring here forces a
+      // full layout of the freshly built SVG (seconds on slow WebViews) for chrome the
+      // user can't see yet. The deferred chrome pass runs it right after that frame.
+      if (!this._chromePassDone && !this._bootDone) return;
       const lblEl = this._id('scale-label-text');
       const barEl = this._id('scale-ruler-bar');
       if (!lblEl || !barEl || !this.svg) return;

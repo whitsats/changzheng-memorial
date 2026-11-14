@@ -99,8 +99,10 @@ function applyHashesToIndexHtml(indexHtml, hashes) {
   const appTagRe = /<script\b[^>]*\bsrc="js\/app\.js\?v=[0-9a-zA-Z_.-]+"[^>]*><\/script>/;
   const appTagMatch = out.match(appTagRe);
   assert(appTagMatch, 'Expected <script ... src="js/app.js?v=..."> tag in index.html');
+  // `defer` keeps the first paint (the inline boot splash) from waiting on this
+  // bundle's download + compile; the app still boots before DOMContentLoaded.
   const expectedAppTag =
-    `<script id="atlas-app-script" src="js/app.js?v=${hashes['js/app.js']}"` +
+    `<script defer id="atlas-app-script" src="js/app.js?v=${hashes['js/app.js']}"` +
     LAZY_ATTR_ASSETS.map(({ attr, relPath }) => ` ${attr}="${hashes[relPath]}"`).join('') +
     '></script>';
   out = out.replace(appTagRe, expectedAppTag);

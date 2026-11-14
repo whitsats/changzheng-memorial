@@ -35,11 +35,56 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@400;500&display=swap" rel="stylesheet" />
-  <link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&text=%20%26%27CDEFHJKMNPQRSTWYabcdefghilmnoprstuvxy%E4%B8%89%E4%B8%9C%E4%B8%AD%E4%BA%94%E4%BA%BA%E4%BB%A3%E5%85%83%E5%85%AD%E5%85%B1%E5%8C%97%E5%8D%81%E5%8D%8E%E5%8D%97%E5%92%8C%E5%94%90%E5%9B%BD%E5%AE%8B%E5%B1%B1%E5%BA%8F%E6%88%98%E6%97%B6%E6%98%8E%E6%99%8B%E6%9C%9D%E6%B0%91%E6%B1%89%E6%B1%9F%E6%B8%85%E7%A7%A6%E8%A5%BF%E9%9A%8B&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="css/style.css?v=dd122bc4" />
+  <!-- Font CSS never blocks the first paint: load it as a print sheet, flip to all when ready.
+       Offline (the Android app) this simply keeps the system fallback faces. -->
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@400;500&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+  <link href="https://fonts.googleapis.com/css2?family=Ma+Shan+Zheng&text=%20%26%27CDEFHJKMNPQRSTWYabcdefghilmnoprstuvxy%E4%B8%89%E4%B8%9C%E4%B8%AD%E4%BA%94%E4%BA%BA%E4%BB%A3%E5%85%83%E5%85%AD%E5%85%B1%E5%8C%97%E5%8D%81%E5%8D%8E%E5%8D%97%E5%92%8C%E5%94%90%E5%9B%BD%E5%AE%8B%E5%B1%B1%E5%BA%8F%E6%88%98%E6%97%B6%E6%98%8E%E6%99%8B%E6%9C%9D%E6%B0%91%E6%B1%89%E6%B1%9F%E6%B8%85%E7%A7%A6%E8%A5%BF%E9%9A%8B&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+  <!-- The stylesheet is 100 KB and, on a phone WebView, parsing it delays the first paint
+       by seconds — leaving a blank page. Load it off the render-blocking path: the inline
+       splash paints first and covers the page until the map itself is ready. -->
+  <link rel="stylesheet" href="css/style.css?v=dd122bc4" media="print" onload="this.media='all'" />
+  <!-- Boot splash: inline so the very first paint is branded instead of a white page.
+       The atlas paints underneath it; app.js clears it once the map's first frame is up. -->
+  <style>
+    #boot-splash {
+      position: fixed; inset: 0; z-index: 9999; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 18px;
+      background: radial-gradient(120% 90% at 50% 12%, #b8402a 0%, #9a301d 52%, #752013 100%);
+      color: #f7f1e3; transition: opacity 380ms ease; pointer-events: none;
+    }
+    #boot-splash.is-done { opacity: 0; }
+    #boot-splash .boot-star { width: 88px; height: 88px; filter: drop-shadow(0 6px 18px rgba(0,0,0,.28)); }
+    #boot-splash .boot-title {
+      font: 600 26px/1.2 "Songti SC", "SimSun", serif; letter-spacing: .18em;
+      text-indent: .18em; color: #fbf7ef;
+    }
+    #boot-splash .boot-sub {
+      font: 400 12px/1.6 "PingFang SC", "Microsoft YaHei", sans-serif;
+      letter-spacing: .26em; text-indent: .26em; color: rgba(247,241,227,.72);
+    }
+    #boot-splash .boot-bar {
+      width: 132px; height: 2px; border-radius: 2px; overflow: hidden;
+      background: rgba(247,241,227,.22);
+    }
+    #boot-splash .boot-bar::after {
+      content: ""; display: block; width: 40%; height: 100%; border-radius: 2px;
+      background: linear-gradient(90deg, rgba(234,184,75,0), #eab84b, rgba(234,184,75,0));
+      animation: boot-slide 1.25s ease-in-out infinite;
+    }
+    @keyframes boot-slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(330%); } }
+    @media (prefers-reduced-motion: reduce) { #boot-splash .boot-bar::after { animation: none; width: 100%; } }
+  </style>
 </head>
 <body>
+  <div id="boot-splash" aria-hidden="true">
+    <svg class="boot-star" viewBox="0 0 64 64" role="presentation">
+      <path d="M32 6 L40 24.7 L60.4 24.7 L43.6 38 L50.4 57.6 L32 44.6 L13.6 57.6 L20.4 38 L3.6 24.7 L24 24.7 Z"
+            fill="#efc25c"/>
+    </svg>
+    <div class="boot-title">长征纪念</div>
+    <div class="boot-sub">1921—1949 · 正在铺展地图</div>
+    <div class="boot-bar"></div>
+  </div>
   <div id="atlas-shell">
     <header id="nav-bar">
       <div class="brand-group">
@@ -382,15 +427,15 @@
       </ul>
     </nav>
 
-  <script src="js/china_geo_data.js?v=a2d3dc62"></script>
-  <script src="js/atlas_boot.js?v=77006f11"></script>
-  <script src="js/map_data.js?v=bb235500"></script>
-  <script src="js/lore_core.js?v=5fcd71ac"></script>
-  <script src="js/world_outline.js?v=fd9a705b"></script>
-  <script id="atlas-app-script" src="js/app.js?v=bbfca15f" data-v-snapshots="ffc1ce28" data-v-i18n="2836b8ba" data-v-lore="c0bb1e0f" data-v-pinyin="7144616c" data-v-hant="3afdab47" data-v-quiz="7699273f" data-v-narrator="fe4f4e00"></script>
-  <script src="js/atlas_trace.js?v=437065be"></script>
-  <script src="js/atlas_search.js?v=432e3c8b"></script>
-  <script src="js/atlas_api.js?v=a81cb6af"></script>
-  <script src="js/atlas_world.js?v=c1a00e7b"></script>
+  <script defer src="js/china_geo_data.js?v=a2d3dc62"></script>
+  <script defer src="js/atlas_boot.js?v=77006f11"></script>
+  <script defer src="js/map_data.js?v=bb235500"></script>
+  <script defer src="js/lore_core.js?v=5fcd71ac"></script>
+  <script defer src="js/world_outline.js?v=fd9a705b"></script>
+  <script defer id="atlas-app-script" src="js/app.js?v=c0318d05" data-v-snapshots="ffc1ce28" data-v-i18n="2836b8ba" data-v-lore="c0bb1e0f" data-v-pinyin="7144616c" data-v-hant="3afdab47" data-v-quiz="7699273f" data-v-narrator="fe4f4e00"></script>
+  <script defer src="js/atlas_trace.js?v=437065be"></script>
+  <script defer src="js/atlas_search.js?v=432e3c8b"></script>
+  <script defer src="js/atlas_api.js?v=a81cb6af"></script>
+  <script defer src="js/atlas_world.js?v=c1a00e7b"></script>
 </body>
 </html>
