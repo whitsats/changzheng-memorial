@@ -4153,6 +4153,26 @@
       }
     }
 
+    // Auto callouts rebuild the balloon (text layout + label avoidance), which costs
+    // ~100 ms right after a big re-render forced a layout flush. Keep the jump itself
+    // synchronous and open the callout next frame, like the typography pass above.
+    _scheduleAutoBalloonSync(dynasty, year) {
+      // Latest jump wins: rapid year steps collapse into one callout at the newest year.
+      this._autoBalloonTarget = { dynasty, year };
+      if (typeof requestAnimationFrame !== 'function') {
+        this._syncAutoMilestoneBalloon(dynasty);
+        return;
+      }
+      if (this._autoBalloonRafPending != null) return;
+      this._autoBalloonRafPending = requestAnimationFrame(() => {
+        this._autoBalloonRafPending = null;
+        const t = this._autoBalloonTarget;
+        if (!t) return;
+        if (this.year !== t.year || this.dynasties[this.dynastyIdx] !== t.dynasty) return;
+        this._syncAutoMilestoneBalloon(t.dynasty);
+      });
+    }
+
     _syncAutoMilestoneBalloon(dynasty) {
       if (!dynasty || !this.milestoneBalloon) return;
       const milestonesHidden =
@@ -6675,13 +6695,30 @@
       const bubble = this._id('scrubber-Bubble');
       const bubbleText = this._id('bubble-text');
       if (!viewport || !bubble || !bubbleText) return;
-      const railW = viewport.clientWidth || this._scrubberRailWidth || 300;
+      // Cache first: clientWidth forces a layout flush when the tree is dirty (post-jump),
+      // and the value only changes on window resize / panel relayout, which reset the cache.
+      const railW = this._scrubberRailWidth || viewport.clientWidth || 300;
       this._scrubberRailWidth = railW;
       const view = this._scrubberView || { start: 0, end: 1 };
       const span = Math.max(1e-6, view.end - view.start);
       const handleX = ((progress - view.start) / span) * railW;
       bubble.style.visibility = '';
-      const bW = bubble.offsetWidth || Math.max(84, Math.round(this._estimateLocalTextWidth(bubbleText.textContent, 12, 0) + 20));
+      // Reading offsetWidth here forces a layout flush over the whole document; after a
+      // dynasty re-render that flush costs ~140 ms and keeps 100 % of it on the pointer
+      // path. Place from the (near-exact) text estimate and reconcile next frame, when
+      // the tree is already clean. During scrubbing this runs every move, so it matters.
+      const useEstimate = this._skipBubbleMeasureOnce || this.isScrubbing;
+      const bW =
+        (useEstimate
+          ? 0
+          : bubble.offsetWidth) || Math.max(84, Math.round(this._estimateLocalTextWidth(bubbleText.textContent, 12, 0) + 20));
+      if (useEstimate && this._bubbleMeasureRaf == null && typeof requestAnimationFrame === 'function') {
+        this._bubbleMeasureRaf = requestAnimationFrame(() => {
+          this._bubbleMeasureRaf = null;
+          this._positionScrubberBubble(this._yearToProgress(this.year));
+        });
+      }
+      this._skipBubbleMeasureOnce = false;
       const maxLeft = Math.max(0, railW - bW);
       const leftPx = Math.max(0, Math.min(maxLeft, handleX - bW * 0.5));
       bubble.style.left = '0px';
@@ -6766,6 +6803,7 @@
       const cur = this.dynasties[this.dynastyIdx];
       const nextSnapKey = this._resolveSnapKey(cur, y);
 
+      this._deferTypoToFrame = true;
       this._runWithDeferredTypography(() => {
         if (prevIdx !== this.dynastyIdx || !this.grpSettlements.firstChild) {
           if (prevIdx !== this.dynastyIdx) {
@@ -6814,9 +6852,12 @@
         this.closeMilestoneBalloon();
       }
       if (!this.activePerson && !this.isScrubbing) {
-        this._syncAutoMilestoneBalloon(cur);
+        this._scheduleAutoBalloonSync(cur, y);
       }
       this._revealScrubberYear();
+      // The DOM was rebuilt for this jump; don't pay the full-document layout flush
+      // just to size the scrubber bubble — _positionScrubberBubble estimates + reconciles.
+      this._skipBubbleMeasureOnce = true;
       this._syncScrubberUi();
       const preserveScroll = Boolean(this._preserveGenealogyScrollOnce);
       this._preserveGenealogyScrollOnce = false;
@@ -7220,7 +7261,19 @@
       } finally {
         this._deferTypographyDepth--;
         if (this._deferTypographyDepth === 0 && this._typoDirty) {
-          this._rescaleSvgTypography();
+          if (this._deferTypoToFrame) {
+            // Jump-initiated renders return immediately; the full label placement
+            // (the single expensive pass after a dynasty re-render) runs next frame.
+            this._deferTypoToFrame = false;
+            if (this._typoRafPending == null) {
+              this._typoRafPending = requestAnimationFrame(() => {
+                this._typoRafPending = null;
+                if (this._typoDirty) this._rescaleSvgTypography();
+              });
+            }
+          } else {
+            this._rescaleSvgTypography();
+          }
         }
       }
     }
@@ -7723,6 +7776,11 @@
 
     _estimateLocalTextWidth(str, fontPx, letterSpacing = 0) {
       if (!str) return 0;
+      // Pure function: recurring names are measured thousands of times per frame.
+      const cache = this._textWidthCache || (this._textWidthCache = new Map());
+      const key = str + '|' + fontPx + '|' + letterSpacing;
+      const hit = cache.get(key);
+      if (hit !== undefined) return hit;
       let w = 0;
       for (let i = 0; i < str.length; i++) {
         const code = str.charCodeAt(i);
@@ -7732,6 +7790,8 @@
           (code >= 0xff00 && code <= 0xffef);
         w += (isWide ? fontPx : fontPx * 0.56) + letterSpacing;
       }
+      if (cache.size > 8192) cache.clear();
+      cache.set(key, w);
       return w;
     }
 
@@ -7867,14 +7927,55 @@
       }
 
       const occupied = [];
+      // Coarse spatial grid: overlapArea only scans boxes in cells the query box touches,
+      // instead of every box placed so far (O(n^2) -> near-linear). Semantics unchanged.
+      const occBuckets = new Map();
+      const occStamp = [];
+      let occQuery = 0;
+      const OCC_CELL = 29; // SVG units; one cell covers a typical city-label box
+      const occKey = (gx, gy) => (gx + 128) * 512 + (gy + 64);
+      const occAdd = (box) => {
+        const idx = occupied.length;
+        occupied.push(box);
+        occStamp.push(0);
+        const gx1 = Math.floor(box.x1 / OCC_CELL);
+        const gx2 = Math.floor(box.x2 / OCC_CELL);
+        const gy1 = Math.floor(box.y1 / OCC_CELL);
+        const gy2 = Math.floor(box.y2 / OCC_CELL);
+        for (let gx = gx1; gx <= gx2; gx++) {
+          for (let gy = gy1; gy <= gy2; gy++) {
+            const key = occKey(gx, gy);
+            let cell = occBuckets.get(key);
+            if (!cell) {
+              cell = [];
+              occBuckets.set(key, cell);
+            }
+            cell.push(idx);
+          }
+        }
+      };
       const overlapArea = (box) => {
+        occQuery++;
         let total = 0;
-        for (let i = 0; i < occupied.length; i++) {
-          const b = occupied[i];
-          const ox = Math.min(box.x2, b.x2) - Math.max(box.x1, b.x1);
-          if (ox <= 0) continue;
-          const oy = Math.min(box.y2, b.y2) - Math.max(box.y1, b.y1);
-          if (oy > 0) total += ox * oy;
+        const gx1 = Math.floor(box.x1 / OCC_CELL);
+        const gx2 = Math.floor(box.x2 / OCC_CELL);
+        const gy1 = Math.floor(box.y1 / OCC_CELL);
+        const gy2 = Math.floor(box.y2 / OCC_CELL);
+        for (let gx = gx1; gx <= gx2; gx++) {
+          for (let gy = gy1; gy <= gy2; gy++) {
+            const cell = occBuckets.get(occKey(gx, gy));
+            if (!cell) continue;
+            for (let i = 0; i < cell.length; i++) {
+              const bi = cell[i];
+              if (occStamp[bi] === occQuery) continue;
+              occStamp[bi] = occQuery;
+              const b = occupied[bi];
+              const ox = Math.min(box.x2, b.x2) - Math.max(box.x1, b.x1);
+              if (ox <= 0) continue;
+              const oy = Math.min(box.y2, b.y2) - Math.max(box.y1, b.y1);
+              if (oy > 0) total += ox * oy;
+            }
+          }
         }
         return total;
       };
@@ -7906,10 +8007,10 @@
         const cx = parseFloat(node.getAttribute('data-x'));
         const cy = parseFloat(node.getAttribute('data-y'));
         const r = (node.classList.contains('is-capital') ? 5.2 : 3.8) * s;
-        occupied.push({ x1: cx - r, y1: cy - r, x2: cx + r, y2: cy + r });
+        occAdd({ x1: cx - r, y1: cy - r, x2: cx + r, y2: cy + r });
       }
       if (showMilestones) {
-        this.svg.querySelectorAll('.milestone-pin').forEach((pin) => {
+        (this.grpMilestones || this.svg).querySelectorAll('.milestone-pin').forEach((pin) => {
           if (
             pin.classList.contains('is-future') ||
             (pin.classList.contains('is-past-occluded') && !pin.classList.contains('is-active')) ||
@@ -7926,7 +8027,7 @@
               (pin.classList.contains('is-current') || pin.classList.contains('is-active')
                 ? 3.9
                 : 3.0) * s;
-            occupied.push({
+            occAdd({
               x1: mx - pr,
               y1: my - pr,
               x2: mx + pr,
@@ -7965,7 +8066,7 @@
             const hh = (isLake ? 8.5 : 5.5) * s;
             const rad = (parseFloat(hl.getAttribute('data-rot') || '0') || 0) * (Math.PI / 180);
             const boxes = rotatedHydroBoxes(hx, hy, hw, hh, Math.cos(rad), Math.sin(rad));
-            for (let k = 0; k < boxes.length; k++) occupied.push(boxes[k]);
+            for (let k = 0; k < boxes.length; k++) occAdd(boxes[k]);
           }
         });
       }
@@ -7980,7 +8081,7 @@
             if (!isNaN(cx) && !isNaN(cy)) {
               const hw = (this._estimateLocalTextWidth(node.textContent, 8.8, 1.8) * 0.5 + 3) * s;
               const hh = 6.2 * s;
-              occupied.push({ x1: cx - hw, y1: cy - hh, x2: cx + hw, y2: cy + hh });
+              occAdd({ x1: cx - hw, y1: cy - hh, x2: cx + hw, y2: cy + hh });
             }
           }
         }
@@ -8000,7 +8101,7 @@
             const py = jy + oy * pScale;
             pinnedCoords.push([jx, jy]);
             const padR = (isBead ? 4.2 : 10.5) * pScale;
-            occupied.push({ x1: px - padR, y1: py - padR, x2: px + padR, y2: py + padR });
+            occAdd({ x1: px - padR, y1: py - padR, x2: px + padR, y2: py + padR });
             const lbl = jn.querySelector('.jn-label');
             if (
               lbl &&
@@ -8014,7 +8115,7 @@
               const w = (this._estimateLocalTextWidth(lbl.textContent, 11.5, 0.5) + 14) * pScale;
               const bx = px + lx * pScale;
               const x1 = anchor === 'start' ? bx : anchor === 'end' ? bx - w : bx - w * 0.5;
-              occupied.push({
+              occAdd({
                 x1,
                 y1: py + (ly - 10) * pScale,
                 x2: x1 + w,
@@ -8033,7 +8134,7 @@
             if (lbl && lbl.textContent) {
               pinnedCoords.push([gx, gy]);
               const hw = (this._estimateLocalTextWidth(lbl.textContent, 11, 0.5) * 0.5 + 8) * s;
-              occupied.push({
+              occAdd({
                 x1: gx - hw,
                 y1: gy + 10 * s,
                 x2: gx + hw,
@@ -8063,7 +8164,7 @@
 
         const hasHintTag = node.classList.contains('has-trace-hint');
         if (hasHintTag) {
-          occupied.push({
+          occAdd({
             x1: cx - 40 * s,
             y1: cy + 6 * s,
             x2: cx + 40 * s,
@@ -8143,7 +8244,7 @@
               setSvgAttribute(nameEl, 'y', String(best.dy1));
               setSvgAttribute(nameEl, 'text-anchor', best.anchor);
             }
-            occupied.push(best.box);
+            occAdd(best.box);
             return;
           }
         }
@@ -8178,7 +8279,7 @@
           setSvgAttribute(nameEl, 'y', String(best.dy1));
           setSvgAttribute(nameEl, 'text-anchor', best.anchor);
         }
-        occupied.push(best.box);
+        occAdd(best.box);
       };
 
       // Tier 1: Capitals first (never culled), then Tier-1 primary cities (gently culled on narrow mobile overview if unavoidable)
@@ -8274,7 +8375,7 @@
           const lockedX = parseFloat(node.getAttribute('data-x'));
           const lockedY = parseFloat(node.getAttribute('data-y'));
           applyNodeScale(node, lockedX.toFixed(1), lockedY.toFixed(1));
-          occupied.push({
+          occAdd({
             x1: lockedX - hw,
             y1: lockedY - hh,
             x2: lockedX + hw,
@@ -8366,7 +8467,7 @@
         setSvgAttribute(node, 'data-x', bestXStr);
         setSvgAttribute(node, 'data-y', bestYStr);
         applyNodeScale(node, bestXStr, bestYStr);
-        occupied.push(bestBox);
+        occAdd(bestBox);
       }
       this._lastPolityTier2State = showTier2;
 
@@ -8379,7 +8480,7 @@
         const cx = parseFloat(node.getAttribute('data-x'));
         const cy = parseFloat(node.getAttribute('data-y'));
         const r = 3.0 * s;
-        occupied.push({ x1: cx - r, y1: cy - r, x2: cx + r, y2: cy + r });
+        occAdd({ x1: cx - r, y1: cy - r, x2: cx + r, y2: cy + r });
       }
 
       // Tier 2b: Modern neighboring country watermarks (dodge ancient polities/cities or hide when same-named historical polity is active)
@@ -8422,7 +8523,7 @@
             const lockedY = parseFloat(node.getAttribute('data-y'));
             node.classList.remove('is-crowded-hidden');
             applyNodeScale(node, lockedX.toFixed(1), lockedY.toFixed(1));
-            occupied.push({
+            occAdd({
               x1: lockedX - hw,
               y1: lockedY - hh,
               x2: lockedX + hw,
@@ -8455,7 +8556,7 @@
           setSvgAttribute(node, 'data-x', bestXStr);
           setSvgAttribute(node, 'data-y', bestYStr);
           applyNodeScale(node, bestXStr, bestYStr);
-          occupied.push(bestBox);
+          occAdd(bestBox);
         });
       }
 
@@ -8494,7 +8595,7 @@
           const cy = parseFloat(node.getAttribute('data-y'));
           if (!node.classList.contains('is-crowded-hidden')) {
             applyNodeScale(node, cx.toFixed(1), cy.toFixed(1));
-            occupied.push({ x1: cx - hw, y1: cy - hh, x2: cx + hw, y2: cy + hh });
+            occAdd({ x1: cx - hw, y1: cy - hh, x2: cx + hw, y2: cy + hh });
           }
           return;
         }
@@ -8512,7 +8613,7 @@
             setSvgAttribute(node, 'data-y', cyStr);
             applyNodeScale(node, cxStr, cyStr);
             node.classList.remove('is-crowded-hidden');
-            occupied.push(candBox);
+            occAdd(candBox);
             placed = true;
             break;
           }
@@ -8592,7 +8693,7 @@
           setSvgAttribute(node, 'data-y', cyStr);
           applyNodeScale(node, cxStr, cyStr);
           node.classList.remove('is-crowded-hidden');
-          occupied.push(candBox);
+          occAdd(candBox);
           placed = true;
           break;
         }
@@ -8664,7 +8765,7 @@
             const cy = parseFloat(node.getAttribute('data-y'));
             applyNodeScale(node, cx.toFixed(1), cy.toFixed(1), rotStr);
             const boxes = rotatedHydroBoxes(cx, cy, hw, hh, ux, uy);
-            for (let k = 0; k < boxes.length; k++) occupied.push(boxes[k]);
+            for (let k = 0; k < boxes.length; k++) occAdd(boxes[k]);
             continue;
           }
 
@@ -8687,7 +8788,7 @@
               setSvgAttribute(node, 'data-y', cyStr);
               applyNodeScale(node, cxStr, cyStr, rotStr);
               node.classList.remove('is-crowded-hidden');
-              for (let k = 0; k < boxes.length; k++) occupied.push(boxes[k]);
+              for (let k = 0; k < boxes.length; k++) occAdd(boxes[k]);
               placed = true;
               break;
             }
