@@ -53,6 +53,15 @@
       color: #f7f1e3; transition: opacity 380ms ease; pointer-events: none;
     }
     #boot-splash.is-done { opacity: 0; }
+    /* Compositor-driven backstop: CSS animations keep running when the main thread is
+       busy compiling megabytes of JS, so the splash can never outlive 14s even if no
+       script callback ever gets a turn. */
+    @keyframes boot-splash-autohide {
+      0%, 92% { opacity: 1; visibility: visible; }
+      100% { opacity: 0; visibility: hidden; }
+    }
+    #boot-splash { animation: boot-splash-autohide 14s linear forwards; }
+    @media (prefers-reduced-motion: reduce) { #boot-splash { animation: none; } }
     #boot-splash .boot-star { width: 88px; height: 88px; filter: drop-shadow(0 6px 18px rgba(0,0,0,.28)); }
     #boot-splash .boot-title {
       font: 600 26px/1.2 "Songti SC", "SimSun", serif; letter-spacing: .18em;
@@ -73,6 +82,8 @@
     }
     @keyframes boot-slide { 0% { transform: translateX(-120%); } 100% { transform: translateX(330%); } }
     @media (prefers-reduced-motion: reduce) { #boot-splash .boot-bar::after { animation: none; width: 100%; } }
+    /* Matches --bg-parchment: the page never flashes white before the stylesheet lands. */
+    html { background: #f3eee4; }
   </style>
 </head>
 <body>
@@ -85,6 +96,37 @@
     <div class="boot-sub">1921—1949 · 正在铺展地图</div>
     <div class="boot-bar"></div>
   </div>
+  <script>
+    // Splash teardown lives in the document, not in app.js: it must work even if the
+    // atlas never initialises, and it must not depend on CSS transitions or on a
+    // single animation frame (a hidden/throttled WebView may never deliver one).
+    (function () {
+      var el = document.getElementById('boot-splash');
+      if (!el) return;
+      var done = false;
+      function clearSplash(reason) {
+        if (done) return;
+        done = true;
+        try {
+          console.log('[splash] removed (' + reason + ') @' + Math.round(performance.now()) + 'ms');
+        } catch (e) { /* console is optional */ }
+        el.style.transition = 'none';
+        el.style.opacity = '0';
+        el.style.display = 'none';
+        if (el.parentNode) el.parentNode.removeChild(el);
+        el = null;
+      }
+      window.__dismissBootSplash = clearSplash;
+      window.addEventListener('atlas:first-frame', function () { clearSplash('first-frame'); });
+      // Absolute backstops: one after the document is ready, one hard timer. Neither can
+      // run while the main thread is blocked compiling scripts, so the boot path also
+      // avoids starting large payloads (see app.js) before the map has painted.
+      document.addEventListener('DOMContentLoaded', function () {
+        setTimeout(function () { clearSplash('domcontentloaded+6s'); }, 6000);
+      });
+      setTimeout(function () { clearSplash('hard-timeout'); }, 9000);
+    })();
+  </script>
   <div id="atlas-shell">
     <header id="nav-bar">
       <div class="brand-group">
@@ -432,7 +474,7 @@
   <script defer src="js/map_data.js?v=bb235500"></script>
   <script defer src="js/lore_core.js?v=5fcd71ac"></script>
   <script defer src="js/world_outline.js?v=fd9a705b"></script>
-  <script defer id="atlas-app-script" src="js/app.js?v=c0318d05" data-v-snapshots="ffc1ce28" data-v-i18n="2836b8ba" data-v-lore="c0bb1e0f" data-v-pinyin="7144616c" data-v-hant="3afdab47" data-v-quiz="7699273f" data-v-narrator="fe4f4e00"></script>
+  <script defer id="atlas-app-script" src="js/app.js?v=4c6a155d" data-v-snapshots="ffc1ce28" data-v-i18n="2836b8ba" data-v-lore="c0bb1e0f" data-v-pinyin="7144616c" data-v-hant="3afdab47" data-v-quiz="7699273f" data-v-narrator="fe4f4e00"></script>
   <script defer src="js/atlas_trace.js?v=437065be"></script>
   <script defer src="js/atlas_search.js?v=432e3c8b"></script>
   <script defer src="js/atlas_api.js?v=a81cb6af"></script>

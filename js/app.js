@@ -491,8 +491,18 @@
       this._scheduleBootSplashDismiss();
       if (!this.embed) this._maybeShowStartGuide();
 
+      // The 2.3 MB snapshot payload is only needed for chronicle detail and deep links:
+      // fetching it 50 ms after boot kept the main thread busy compiling for tens of
+      // seconds and delayed the first map frame on slow devices. Load it after the first
+      // frame instead; every consumer already awaits the same promise on demand.
       if (typeof window !== 'undefined' && !this._fullSnapshotsLoaded) {
-        setTimeout(() => this._ensureFullSnapshots(), 50);
+        this._runAfterFirstFrame(() => {
+          if (typeof requestIdleCallback === 'function') {
+            requestIdleCallback(() => this._ensureFullSnapshots(), { timeout: 2000 });
+          } else {
+            setTimeout(() => this._ensureFullSnapshots(), 0);
+          }
+        });
       }
       if (typeof window !== 'undefined' && !this._isLoreDetailLoaded()) {
         const scheduleIdle =
@@ -7403,21 +7413,17 @@
     }
 
     // Drop the inline boot splash only once the map has actually painted a frame,
-    // so slow devices show the branded screen instead of a white page.
+    // so slow devices show the branded screen instead of a white page. The teardown
+    // itself belongs to index.html (it also runs if this script never gets going).
     _scheduleBootSplashDismiss() {
-      if (typeof document === 'undefined') return;
-      const el = document.getElementById('boot-splash');
-      if (!el || el.dataset.dismissed) return;
-      const dismiss = () => {
-        if (el.dataset.dismissed) return;
-        el.dataset.dismissed = '1';
-        el.classList.add('is-done');
-        setTimeout(() => {
-          if (el.parentNode) el.parentNode.removeChild(el);
-        }, 460);
-      };
+      if (typeof window === 'undefined') return;
       this._runAfterFirstFrame(() => {
-        dismiss();
+        if (typeof window.__dismissBootSplash === 'function') {
+          window.__dismissBootSplash('first-frame');
+        } else if (typeof document !== 'undefined') {
+          const el = document.getElementById('boot-splash');
+          if (el && el.parentNode) el.parentNode.removeChild(el);
+        }
         this._runDeferredChromePass();
       });
     }
